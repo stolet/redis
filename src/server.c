@@ -150,7 +150,7 @@ void _serverLog(int level, const char *fmt, ...) {
     serverLogRaw(level,msg);
 }
 
-/* Low level logging from signal handler. Should be used with pre-formatted strings. 
+/* Low level logging from signal handler. Should be used with pre-formatted strings.
    See serverLogFromHandler. */
 void serverLogRawFromHandler(int level, const char *msg) {
     int fd;
@@ -1461,7 +1461,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
      * a higher frequency. */
     run_with_period(1000) {
         if ((server.aof_state == AOF_ON || server.aof_state == AOF_WAIT_REWRITE) &&
-            server.aof_last_write_status == C_ERR) 
+            server.aof_last_write_status == C_ERR)
             {
                 flushAppendOnlyFile(0);
             }
@@ -1471,8 +1471,8 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     updatePausedActions();
 
     /* Replication cron function -- used to reconnect to master,
-     * detect transfer failures, start background RDB transfers and so forth. 
-     * 
+     * detect transfer failures, start background RDB transfers and so forth.
+     *
      * If Redis is trying to failover then run the replication cron faster so
      * progress on the handshake happens more quickly. */
     if (server.failover_state != NO_FAILOVER) {
@@ -1699,7 +1699,7 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
      * processUnblockedClients(), so if there are multiple pipelined WAITs
      * and the just unblocked WAIT gets blocked again, we don't have to wait
      * a server cron cycle in absence of other event loop events. See #6623.
-     * 
+     *
      * We also don't send the ACKs while clients are paused, since it can
      * increment the replication backlog, they'll be sent after the pause
      * if we are still the master. */
@@ -1709,7 +1709,7 @@ void beforeSleep(struct aeEventLoop *eventLoop) {
     }
 
     /* We may have received updates from clients about their current offset. NOTE:
-     * this can't be done where the ACK is received since failover will disconnect 
+     * this can't be done where the ACK is received since failover will disconnect
      * our clients. */
     updateFailoverStatus();
 
@@ -4181,12 +4181,12 @@ int processCommand(client *c) {
 
     /* If the server is paused, block the client until
      * the pause has ended. Replicas are never paused. */
-    if (!(c->flags & CLIENT_SLAVE) && 
+    if (!(c->flags & CLIENT_SLAVE) &&
         ((isPausedActions(PAUSE_ACTION_CLIENT_ALL)) ||
         ((isPausedActions(PAUSE_ACTION_CLIENT_WRITE)) && is_may_replicate_command)))
     {
         blockPostponeClient(c);
-        return C_OK;       
+        return C_OK;
     }
 
     /* Exec the command */

@@ -528,7 +528,7 @@ static int anetV6Only(char *err, int s) {
 
 static int _anetTcpServer(char *err, int port, char *bindaddr, int af, int backlog)
 {
-    int s = -1, rv;
+    int s = -1, rv, sopt;
     char _port[6];  /* strlen("65535") */
     struct addrinfo hints, *servinfo, *p;
 
@@ -549,6 +549,15 @@ static int _anetTcpServer(char *err, int port, char *bindaddr, int af, int backl
     for (p = servinfo; p != NULL; p = p->ai_next) {
         if ((s = socket(p->ai_family,p->ai_socktype,p->ai_protocol)) == -1)
             continue;
+
+        /* Set socket option to zero copy. We have to do this here because
+         * setting the socket option only works when the socket is in its
+         * initial TCP_CLOSED state. Trying to set the option for a socket
+         * returned by accept() will lead to an EBUSY error.
+         */
+        sopt = 1;
+        if (setsockopt(s, SOL_SOCKET, SO_ZEROCOPY, &sopt, sizeof(sopt)) == -1)
+            goto error;
 
         if (af == AF_INET6 && anetV6Only(err,s) == ANET_ERR) goto error;
         if (anetSetReuseAddr(err,s) == ANET_ERR) goto error;

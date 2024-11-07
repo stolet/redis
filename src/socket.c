@@ -131,7 +131,12 @@ static void connSocketClose(connection *conn) {
 }
 
 static int connSocketWrite(connection *conn, const void *data, size_t data_len) {
-    int ret = write(conn->fd, data, data_len);
+    /* Use zero-copy send. We need to remember to only reuse the data
+     * buffer after wer receive a completion notification on the socket
+     * error queue. For now I have not implemented this, but I should
+     * keep it in mind in case I start seeing weird behaviour.
+     */
+    int ret = send(conn->fd, data, data_len, MSG_ZEROCOPY);
     if (ret < 0 && errno != EAGAIN) {
         conn->last_errno = errno;
 
