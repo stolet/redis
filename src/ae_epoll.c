@@ -7,8 +7,11 @@
  * (RSALv2) or the Server Side Public License v1 (SSPLv1).
  */
 
-
+#include <stdio.h>
+#include <sys/socket.h>
 #include <sys/epoll.h>
+#include <assert.h>
+#include <linux/errqueue.h>
 
 typedef struct aeApiState {
     int epfd;
@@ -86,6 +89,9 @@ static void aeApiDelEvent(aeEventLoop *eventLoop, int fd, int delmask) {
 }
 
 static int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp) {
+    struct sock_extended_err *serr;
+    struct cmsghdr *cm;
+    struct msghdr msg = {0};
     aeApiState *state = eventLoop->apidata;
     int retval, numevents = 0;
 
@@ -103,6 +109,25 @@ static int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp) {
             if (e->events & EPOLLOUT) mask |= AE_WRITABLE;
             if (e->events & EPOLLERR) mask |= AE_WRITABLE|AE_READABLE;
             if (e->events & EPOLLHUP) mask |= AE_WRITABLE|AE_READABLE;
+
+            /* Handle zero-copy completion notification */
+            if (e->events & EPOLLERR) {
+                retval = recvmsg(e->data.fd, &msg, MSG_ERRQUEUE);
+
+                if (retval >= 0) {
+                    cm = CMSG_FIRSTHDR(&msg);
+
+                    if (cm != NULL) {
+                        serr = (struct sock_extended_err *) CMSG_DATA(cm);
+                        if (serr != NULL &&
+                                serr->ee_origin == SO_EE_ORIGIN_ZEROCOPY) {
+                            /* Write buffer is now ready for use */
+                            eventLoop->events[e->data.fd].bufReady = 1;
+                        }
+                    }
+                }
+            }
+
             eventLoop->fired[j].fd = e->data.fd;
             eventLoop->fired[j].mask = mask;
         }

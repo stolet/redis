@@ -98,6 +98,7 @@ struct connection {
     short int refs;
     unsigned short int iovcnt;
     void *private_data;
+    int buf_ready;
     ConnectionCallbackFunc conn_handler;
     ConnectionCallbackFunc write_handler;
     ConnectionCallbackFunc read_handler;
@@ -186,7 +187,7 @@ static inline int connWritev(connection *conn, const struct iovec *iov, int iovc
 }
 
 /* Read from the connection, behaves the same as read(2).
- * 
+ *
  * Like read(2), a short read is possible.  A return value of 0 will indicate the
  * connection was closed, and -1 will indicate an error.
  *

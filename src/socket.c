@@ -57,6 +57,7 @@ static connection *connCreateSocket(void) {
     connection *conn = zcalloc(sizeof(connection));
     conn->type = &CT_Socket;
     conn->fd = -1;
+    conn->buf_ready = 1;
     conn->iovcnt = IOV_MAX;
 
     return conn;
@@ -76,6 +77,7 @@ static connection *connCreateAcceptedSocket(int fd, void *priv) {
     UNUSED(priv);
     connection *conn = connCreateSocket();
     conn->fd = fd;
+    conn->buf_ready = 1;
     conn->state = CONN_STATE_ACCEPTING;
     return conn;
 }
@@ -137,6 +139,7 @@ static int connSocketWrite(connection *conn, const void *data, size_t data_len) 
      * keep it in mind in case I start seeing weird behaviour.
      */
     int ret = send(conn->fd, data, data_len, MSG_ZEROCOPY);
+    conn->buf_ready = 0;
     if (ret < 0 && errno != EAGAIN) {
         conn->last_errno = errno;
 
@@ -244,6 +247,9 @@ static void connSocketEventHandler(struct aeEventLoop *el, int fd, void *clientD
     UNUSED(fd);
     connection *conn = clientData;
 
+    if (conn->buf_ready == 0)
+        conn->buf_ready = el->events[fd].bufReady;
+
     if (conn->state == CONN_STATE_CONNECTING &&
             (mask & AE_WRITABLE) && conn->conn_handler) {
 
@@ -283,7 +289,8 @@ static void connSocketEventHandler(struct aeEventLoop *el, int fd, void *clientD
     }
     /* Fire the writable event. */
     if (call_write) {
-        if (!callHandler(conn, conn->write_handler)) return;
+        if (conn->buf_ready)
+            if (!callHandler(conn, conn->write_handler)) return;
     }
     /* If we have to invert the call, fire the readable event now
      * after the writable one. */

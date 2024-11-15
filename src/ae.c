@@ -422,7 +422,7 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
             /* Fire the writable event. */
             if (fe->mask & mask & AE_WRITABLE) {
                 if (!fired || fe->wfileProc != fe->rfileProc) {
-                    fe->wfileProc(eventLoop,fd,fe->clientData,mask);
+                    fe->wfileProc(eventLoop,fd,fe->clientData, mask);
                     fired++;
                 }
             }

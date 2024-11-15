@@ -50,6 +50,7 @@ typedef void aeBeforeSleepProc(struct aeEventLoop *eventLoop);
 /* File event structure */
 typedef struct aeFileEvent {
     int mask; /* one of AE_(READABLE|WRITABLE|BARRIER) */
+    int bufReady;
     aeFileProc *rfileProc;
     aeFileProc *wfileProc;
     void *clientData;
