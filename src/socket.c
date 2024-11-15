@@ -154,7 +154,12 @@ static int connSocketWrite(connection *conn, const void *data, size_t data_len) 
 }
 
 static int connSocketWritev(connection *conn, const struct iovec *iov, int iovcnt) {
-    int ret = writev(conn->fd, iov, iovcnt);
+    struct msghdr msg = {0};
+    msg.msg_iov = (struct iovec *) iov;
+    msg.msg_iovlen = iovcnt;
+
+    int ret = sendmsg(conn->fd, &msg, MSG_ZEROCOPY);
+    conn->buf_ready = 0;
     if (ret < 0 && errno != EAGAIN) {
         conn->last_errno = errno;
 
