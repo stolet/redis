@@ -8,6 +8,7 @@
 
 #include "server.h"
 #include "connhelpers.h"
+#include <assert.h>
 
 /* The connections module provides a lean abstraction of network connections
  * to avoid direct socket and async event management across the Redis code base.
@@ -59,7 +60,6 @@ static connection *connCreateSocket(void) {
     conn->fd = -1;
     conn->buf_ready = 1;
     conn->iovcnt = IOV_MAX;
-
     return conn;
 }
 
@@ -79,6 +79,7 @@ static connection *connCreateAcceptedSocket(int fd, void *priv) {
     conn->fd = fd;
     conn->buf_ready = 1;
     conn->state = CONN_STATE_ACCEPTING;
+
     return conn;
 }
 
@@ -133,13 +134,18 @@ static void connSocketClose(connection *conn) {
 }
 
 static int connSocketWrite(connection *conn, const void *data, size_t data_len) {
+    int ret;
+
+    if (conn->buf_ready == 0)
+        return C_ERR;
+
     /* Use zero-copy send. We need to remember to only reuse the data
-     * buffer after wer receive a completion notification on the socket
-     * error queue. For now I have not implemented this, but I should
-     * keep it in mind in case I start seeing weird behaviour.
-     */
-    int ret = send(conn->fd, data, data_len, MSG_ZEROCOPY);
-    conn->buf_ready = 0;
+    * buffer after wer receive a completion notification on the socket
+    * error queue. For now I have not implemented this, but I should
+    * keep it in mind in case I start seeing weird behaviour.
+    */
+    ret = send(conn->fd, data, data_len, MSG_ZEROCOPY);
+
     if (ret < 0 && errno != EAGAIN) {
         conn->last_errno = errno;
 
@@ -149,17 +155,29 @@ static int connSocketWrite(connection *conn, const void *data, size_t data_len) 
         if (errno != EINTR && conn->state == CONN_STATE_CONNECTED)
             conn->state = CONN_STATE_ERROR;
     }
+
+    if (ret > 0)
+        conn->buf_ready = 0;
 
     return ret;
 }
 
 static int connSocketWritev(connection *conn, const struct iovec *iov, int iovcnt) {
+    int ret;
     struct msghdr msg = {0};
     msg.msg_iov = (struct iovec *) iov;
     msg.msg_iovlen = iovcnt;
 
-    int ret = sendmsg(conn->fd, &msg, MSG_ZEROCOPY);
-    conn->buf_ready = 0;
+    if (conn->buf_ready == 0)
+        return C_ERR;
+
+    /* Use zero-copy sendmsg. We need to remember to only reuse the data
+    * buffer after wer receive a completion notification on the socket
+    * error queue. For now I have not implemented this, but I should
+    * keep it in mind in case I start seeing weird behaviour.
+    */
+    ret = sendmsg(conn->fd, &msg, MSG_ZEROCOPY);
+
     if (ret < 0 && errno != EAGAIN) {
         conn->last_errno = errno;
 
@@ -169,6 +187,9 @@ static int connSocketWritev(connection *conn, const struct iovec *iov, int iovcn
         if (errno != EINTR && conn->state == CONN_STATE_CONNECTED)
             conn->state = CONN_STATE_ERROR;
     }
+
+    if (ret > 0)
+        conn->buf_ready = 0;
 
     return ret;
 }
@@ -252,8 +273,11 @@ static void connSocketEventHandler(struct aeEventLoop *el, int fd, void *clientD
     UNUSED(fd);
     connection *conn = clientData;
 
-    if (conn->buf_ready == 0)
-        conn->buf_ready = el->events[fd].bufReady;
+    /* If we received zero-copy completion set connection buffer
+     * to ready.
+     */
+    if ((mask & AE_ZCOPY) == AE_ZCOPY)
+        conn->buf_ready = 1;
 
     if (conn->state == CONN_STATE_CONNECTING &&
             (mask & AE_WRITABLE) && conn->conn_handler) {
@@ -289,17 +313,18 @@ static void connSocketEventHandler(struct aeEventLoop *el, int fd, void *clientD
     int call_read = (mask & AE_READABLE) && conn->read_handler;
 
     /* Handle normal I/O flows */
-    if (!invert && call_read) {
+    if (!invert && call_read && conn->buf_ready) {
         if (!callHandler(conn, conn->read_handler)) return;
     }
     /* Fire the writable event. */
-    if (call_write) {
-        if (conn->buf_ready)
-            if (!callHandler(conn, conn->write_handler)) return;
+    if (call_write && conn->buf_ready)
+    {
+        if (!callHandler(conn, conn->write_handler)) return;
     }
+
     /* If we have to invert the call, fire the readable event now
      * after the writable one. */
-    if (invert && call_read) {
+    if (invert && call_read && conn->buf_ready) {
         if (!callHandler(conn, conn->read_handler)) return;
     }
 }

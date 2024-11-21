@@ -25,6 +25,7 @@
                            loop iteration. Useful when you want to persist
                            things to disk before sending replies, and want
                            to do that in a group fashion. */
+#define AE_ZCOPY 8      /* Zero-copy notification completed */
 
 #define AE_FILE_EVENTS (1<<0)
 #define AE_TIME_EVENTS (1<<1)

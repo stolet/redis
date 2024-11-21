@@ -12,6 +12,9 @@
 #include <sys/epoll.h>
 #include <assert.h>
 #include <linux/errqueue.h>
+#include <errno.h>
+#include <netinet/ip.h>
+#include <error.h>
 
 typedef struct aeApiState {
     int epfd;
@@ -90,10 +93,15 @@ static void aeApiDelEvent(aeEventLoop *eventLoop, int fd, int delmask) {
 
 static int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp) {
     struct sock_extended_err *serr;
+    char control_buf[1024];
     struct cmsghdr *cm;
-    struct msghdr msg = {0};
+
     aeApiState *state = eventLoop->apidata;
     int retval, numevents = 0;
+
+    struct msghdr msg = {0};
+    memset(control_buf, 0, sizeof(control_buf));
+    struct iovec iov = { .iov_base = NULL, .iov_len = 0 };
 
     retval = epoll_wait(state->epfd,state->events,eventLoop->setsize,
             tvp ? (tvp->tv_sec*1000 + (tvp->tv_usec + 999)/1000) : -1);
@@ -112,19 +120,24 @@ static int aeApiPoll(aeEventLoop *eventLoop, struct timeval *tvp) {
 
             /* Handle zero-copy completion notification */
             if (e->events & EPOLLERR) {
-                retval = recvmsg(e->data.fd, &msg, MSG_ERRQUEUE);
-
-                if (retval >= 0) {
+                msg.msg_iov = &iov;
+                msg.msg_iovlen = 1;
+                msg.msg_control = control_buf;
+                msg.msg_controllen = sizeof(control_buf);
+                if (recvmsg(e->data.fd, &msg, MSG_ERRQUEUE) >= 0)
+                {
                     cm = CMSG_FIRSTHDR(&msg);
+                    if (cm->cmsg_level != SOL_IP &&
+                        cm->cmsg_type != IP_RECVERR)
+                            error(1, 0, "cmsg");
 
-                    if (cm != NULL) {
-                        serr = (struct sock_extended_err *) CMSG_DATA(cm);
-                        if (serr != NULL &&
-                                serr->ee_origin == SO_EE_ORIGIN_ZEROCOPY) {
-                            /* Write buffer is now ready for use */
-                            eventLoop->events[e->data.fd].bufReady = 1;
-                        }
-                    }
+                    serr = (void *) CMSG_DATA(cm);
+                    if (serr->ee_errno != 0 ||
+                        serr->ee_origin != SO_EE_ORIGIN_ZEROCOPY)
+                            error(1, 0, "serr");
+
+                    eventLoop->events[e->data.fd].bufReady = 1;
+                    mask |= AE_ZCOPY;
                 }
             }
 
